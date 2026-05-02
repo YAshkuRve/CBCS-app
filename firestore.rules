@@ -1,0 +1,65 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper: get caller's role from /users/{uid}
+    function getRole() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    // ── users collection ──────────────────────────────────────────────
+    match /users/{uid} {
+      allow read, write: if isSignedIn() && request.auth.uid == uid;
+    }
+
+    // ── forms collection ──────────────────────────────────────────────
+    match /forms/{formId} {
+      // Students can only read/write their own forms
+      allow read: if isSignedIn() && (
+        resource.data.studentUid == request.auth.uid ||
+        getRole() == 'cbcs_coordinator' ||
+        getRole() == 'faculty' ||
+        getRole() == 'mis'
+      );
+
+      // Students create their own forms
+      allow create: if isSignedIn() && getRole() == 'student';
+
+      // Students can update their own form; coordinators & MIS can update any
+      allow update: if isSignedIn() && (
+        (getRole() == 'student' && resource.data.studentUid == request.auth.uid) ||
+        getRole() == 'cbcs_coordinator' ||
+        getRole() == 'faculty' ||
+        getRole() == 'mis'
+      );
+
+      allow delete: if false;
+    }
+
+    // ── notifications collection ──────────────────────────────────────
+    match /notifications/{notifId} {
+      allow read: if isSignedIn() && (
+        resource.data.to == request.auth.uid ||
+        resource.data.to == 'cbcs_coordinator' ||
+        getRole() == 'mis' ||
+        getRole() == 'cbcs_coordinator' ||
+        getRole() == 'faculty'
+      );
+      allow create: if isSignedIn();
+      allow update: if isSignedIn() && resource.data.to == request.auth.uid;
+      allow delete: if false;
+    }
+
+    // ── courses collection (for CourseSetupPanel) ─────────────────────
+    match /courses/{courseId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn() && (
+        getRole() == 'cbcs_coordinator' || getRole() == 'faculty'
+      );
+    }
+  }
+}
